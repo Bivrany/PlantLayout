@@ -51,21 +51,20 @@ function renderPyramid(){
   const root=$('pyramid');
   if(!state.processes.length){root.innerHTML='<div class="empty">Añade procesos primero.</div>';return}
   let h='<div class="pyramid-wrap"><div class="pyramid-head"><div></div><div class="pair-title">Relaciones entre actividades</div></div>';
-  // Distribuye las parejas en un triángulo con el vértice hacia la derecha.
-  // Cada pareja aparece una sola vez y conserva sus IDs para sincronizar matriz y causas.
-  const n=state.processes.length;
-  const cellStep=39, rowStep=50;
-  h+='<div class="pyramid-pointing-right" style="position:relative;width:'+((n-1)*cellStep+78)+'px;height:'+((n-1)*rowStep+50)+'px;margin-left:280px">';
-  for(let i=0;i<n;i++){
-    for(let j=i+1;j<n;j++){
-      const a=state.processes[i],b=state.processes[j],v=rel(a.id,b.id),c=cause(a.id,b.id);
-      const x=(i+j)*cellStep/2, y=(n-1-j+i)*rowStep/2;
-      h+='<div class="pyramid-cell '+v.toLowerCase()+'" style="position:absolute;left:'+x+'px;top:'+y+'px" title="'+esc(a.name)+' ↔ '+esc(b.name)+'"><div class="pyramid-content">';
+  // La pirámide se construye por columnas de proceso: cada fila añade una relación.
+  // Así, el lado vertical queda junto a las etiquetas y la base no apunta hacia abajo.
+  state.processes.forEach((b,i)=>{
+    if(i===0)return;
+    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+b.id+'.</span><span class="pname" title="'+esc(b.name)+'">'+esc(b.name)+'</span></div><div class="pyramid-cells" style="padding-left:'+((state.processes.length-1-i)*39)+'px">';
+    for(let j=0;j<i;j++){
+      const a=state.processes[j],v=rel(a.id,b.id),c=cause(a.id,b.id);
+      h+='<div class="pyramid-cell '+v.toLowerCase()+'" title="'+esc(a.name)+' ↔ '+esc(b.name)+'"><div class="pyramid-content">';
       h+='<select class="pyramid-code '+v.toLowerCase()+'" data-a="'+a.id+'" data-b="'+b.id+'" aria-label="Relación '+a.id+' con '+b.id+'"><option value="A" '+(v==='A'?'selected':'')+'>A</option><option value="E" '+(v==='E'?'selected':'')+'>E</option><option value="I" '+(v==='I'?'selected':'')+'>I</option><option value="O" '+(v==='O'?'selected':'')+'>O</option><option value="U" '+(v==='U'?'selected':'')+'>U</option><option value="X" '+(v==='X'?'selected':'')+'>X</option></select>';
       h+='<input class="pyramid-cause" type="number" min="1" max="99" inputmode="numeric" placeholder="—" value="'+esc(c)+'" data-cause-a="'+a.id+'" data-cause-b="'+b.id+'" aria-label="Causa de relación '+a.id+' con '+b.id+'">';
       h+='</div></div>';
     }
-  }
+    h+='</div></div>';
+  });
   h+='</div>';
   root.innerHTML=h;
   root.querySelectorAll('.pyramid-code').forEach(sel=>sel.onchange=()=>setRel(+sel.dataset.a,+sel.dataset.b,sel.value));
