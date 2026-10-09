@@ -52,7 +52,7 @@ function renderPyramid(){
   if(!state.processes.length){root.innerHTML='<div class="empty">Añade procesos primero.</div>';return}
   let h='<div class="pyramid-wrap"><div class="pyramid-head"><div></div><div class="pair-title">Relaciones entre actividades</div></div>';
   state.processes.forEach((a,i)=>{
-    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+a.id+'.</span><span class="pname" title="'+esc(a.name)+'">'+esc(a.name)+'</span></div><div class="pyramid-cells" style="padding-left:'+(i*39)+'px">';
+    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+a.id+'.</span><span class="pname" title="'+esc(a.name)+'">'+esc(a.name)+'</span></div><div class="pyramid-cells" style="padding-left:'+((state.processes.length-1-i)*39)+'px">';
     for(let j=i+1;j<state.processes.length;j++){
       const b=state.processes[j],v=rel(a.id,b.id),c=cause(a.id,b.id);
       h+='<div class="pyramid-cell '+v.toLowerCase()+'" title="'+esc(a.name)+' ↔ '+esc(b.name)+'"><div class="pyramid-content">';
