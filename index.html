@@ -55,7 +55,7 @@ function renderPyramid(){
   // Así, el lado vertical queda junto a las etiquetas y la base no apunta hacia abajo.
   state.processes.forEach((b,i)=>{
     if(i===0)return;
-    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+b.id+'.</span><span class="pname" title="'+esc(b.name)+'">'+esc(b.name)+'</span></div><div class="pyramid-cells">';
+    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+b.id+'.</span><span class="pname" title="'+esc(b.name)+'">'+esc(b.name)+'</span></div><div class="pyramid-cells" style="padding-left:'+((state.processes.length-1-i)*39)+'px">';
     for(let j=0;j<i;j++){
       const a=state.processes[j],v=rel(a.id,b.id),c=cause(a.id,b.id);
       h+='<div class="pyramid-cell '+v.toLowerCase()+'" title="'+esc(a.name)+' ↔ '+esc(b.name)+'"><div class="pyramid-content">';
