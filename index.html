@@ -51,18 +51,21 @@ function renderPyramid(){
   const root=$('pyramid');
   if(!state.processes.length){root.innerHTML='<div class="empty">Añade procesos primero.</div>';return}
   let h='<div class="pyramid-wrap"><div class="pyramid-head"><div></div><div class="pair-title">Relaciones entre actividades</div></div>';
-  state.processes.forEach((a,i)=>{
-    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+a.id+'.</span><span class="pname" title="'+esc(a.name)+'">'+esc(a.name)+'</span></div><div class="pyramid-cells" style="padding-left:'+(i*39)+'px">';
-    for(let j=i+1;j<state.processes.length;j++){
-      const b=state.processes[j],v=rel(a.id,b.id),c=cause(a.id,b.id);
+  // La pirámide se construye por columnas de proceso: cada fila añade una relación.
+  // Así, el lado vertical queda junto a las etiquetas y la base no apunta hacia abajo.
+  state.processes.forEach((b,i)=>{
+    if(i===0)return;
+    h+='<div class="pyramid-row"><div class="pyramid-label"><span class="pid">'+b.id+'.</span><span class="pname" title="'+esc(b.name)+'">'+esc(b.name)+'</span></div><div class="pyramid-cells">';
+    for(let j=0;j<i;j++){
+      const a=state.processes[j],v=rel(a.id,b.id),c=cause(a.id,b.id);
       h+='<div class="pyramid-cell '+v.toLowerCase()+'" title="'+esc(a.name)+' ↔ '+esc(b.name)+'"><div class="pyramid-content">';
       h+='<select class="pyramid-code '+v.toLowerCase()+'" data-a="'+a.id+'" data-b="'+b.id+'" aria-label="Relación '+a.id+' con '+b.id+'"><option value="A" '+(v==='A'?'selected':'')+'>A</option><option value="E" '+(v==='E'?'selected':'')+'>E</option><option value="I" '+(v==='I'?'selected':'')+'>I</option><option value="O" '+(v==='O'?'selected':'')+'>O</option><option value="U" '+(v==='U'?'selected':'')+'>U</option><option value="X" '+(v==='X'?'selected':'')+'>X</option></select>';
       h+='<input class="pyramid-cause" type="number" min="1" max="99" inputmode="numeric" placeholder="—" value="'+esc(c)+'" data-cause-a="'+a.id+'" data-cause-b="'+b.id+'" aria-label="Causa de relación '+a.id+' con '+b.id+'">';
-      h+='</div></div>'
+      h+='</div></div>';
     }
-    h+='</div></div>'
+    h+='</div></div>';
   });
-  h+='<div class="pyramid-row pyramid-last"><div class="pyramid-label"><span class="pid">'+state.processes[state.processes.length-1].id+'.</span><span class="pname" title="'+esc(state.processes[state.processes.length-1].name)+'">'+esc(state.processes[state.processes.length-1].name)+'</span></div><div></div></div></div>';
+  h+='</div>';
   root.innerHTML=h;
   root.querySelectorAll('.pyramid-code').forEach(sel=>sel.onchange=()=>setRel(+sel.dataset.a,+sel.dataset.b,sel.value));
   root.querySelectorAll('.pyramid-cause').forEach(inp=>inp.onchange=()=>setCause(+inp.dataset.causeA,+inp.dataset.causeB,inp.value));
