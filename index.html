@@ -70,6 +70,59 @@ function renderPyramid(){
   root.querySelectorAll('.pyramid-code').forEach(sel=>sel.onchange=()=>setRel(+sel.dataset.a,+sel.dataset.b,sel.value));
   root.querySelectorAll('.pyramid-cause').forEach(inp=>inp.onchange=()=>setCause(+inp.dataset.causeA,+inp.dataset.causeB,inp.value));
 }
+const STEP_TYPES={operation:{label:'Operación',symbol:'O'},transport:{label:'Transporte',symbol:'T'},inspection:{label:'Inspección',symbol:'I'},delay:{label:'Demora',symbol:'D'},storage:{label:'Almacenamiento',symbol:'A'},combined:{label:'Operación + inspección',symbol:'O/I'}};
+function addDiagramStep(type){
+  const list=state.processDiagram||(state.processDiagram=[]);
+  const id=list.length?Math.max(...list.map(x=>x.id))+1:1;
+  const cols=3,idx=list.length;
+  list.push({id,type,label:STEP_TYPES[type]?.label||'Actividad',x:16+(idx%cols)*32,y:20+Math.floor(idx/cols)*27});
+  renderProcessDiagram();
+}
+function renderProcessDiagram(){
+  const canvas=$('processDiagramCanvas'); if(!canvas)return;
+  const nodes=$('processDiagramNodes'); nodes.innerHTML='';
+  const list=state.processDiagram||(state.processDiagram=[]);
+  $('processDiagramEmpty').classList.toggle('hidden',list.length>0);
+  const svg=$('processDiagramSvg');svg.innerHTML='';
+  (state.processDiagramLinks||(state.processDiagramLinks=[])).forEach((ln,index)=>{
+    const a=list.find(n=>n.id===ln.from),b=list.find(n=>n.id===ln.to);if(!a||!b)return;
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    const rect=canvas.getBoundingClientRect(),w=Math.max(rect.width,720),h=Math.max(rect.height,520);
+    line.setAttribute('x1',a.x/100*w);line.setAttribute('y1',a.y/100*h);
+    line.setAttribute('x2',b.x/100*w);line.setAttribute('y2',b.y/100*h);
+    line.setAttribute('stroke','#64748b');line.setAttribute('stroke-width','2');line.setAttribute('marker-end','url(#processArrow)');svg.appendChild(line);
+  });
+  if(list.length){
+    const defs=document.createElementNS('http://www.w3.org/2000/svg','defs'),marker=document.createElementNS('http://www.w3.org/2000/svg','marker');
+    marker.setAttribute('id','processArrow');marker.setAttribute('markerWidth','8');marker.setAttribute('markerHeight','8');marker.setAttribute('refX','6');marker.setAttribute('refY','3');marker.setAttribute('orient','auto');
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d','M0,0 L0,6 L6,3 z');path.setAttribute('fill','#64748b');marker.appendChild(path);defs.appendChild(marker);svg.prepend(defs);
+  }
+  list.forEach(step=>{
+    const node=document.createElement('div');node.className='process-diagram-node';node.style.left=step.x+'%';node.style.top=step.y+'%';
+    const shape=document.createElement('div');shape.className='step-shape '+step.type;shape.textContent=STEP_TYPES[step.type]?.symbol||'?';shape.title=state.diagramConnectFrom===step.id?'Selecciona otro símbolo para conectar':'Arrastra para mover';
+    shape.onclick=()=>{if(state.diagramConnectFrom!=null&&state.diagramConnectFrom!==step.id){const links=state.processDiagramLinks||(state.processDiagramLinks=[]);if(!links.some(l=>l.from===state.diagramConnectFrom&&l.to===step.id))links.push({from:state.diagramConnectFrom,to:step.id});state.diagramConnectFrom=null;renderProcessDiagram();toast('Conexión añadida')}};
+    let down=false,sx=0,sy=0,ox=0,oy=0,pid=null;
+    shape.onpointerdown=e=>{
+      if(state.diagramConnectFrom!=null)return;
+      if(e.pointerType==='mouse'&&e.button!==0)return;
+      down=true;pid=e.pointerId;sx=e.clientX;sy=e.clientY;ox=step.x;oy=step.y;shape.setPointerCapture?.(pid);e.preventDefault();
+    };
+    shape.onpointermove=e=>{if(!down||e.pointerId!==pid)return;const r=canvas.getBoundingClientRect();step.x=Math.max(8,Math.min(92,ox+(e.clientX-sx)/r.width*100));step.y=Math.max(8,Math.min(92,oy+(e.clientY-sy)/r.height*100));node.style.left=step.x+'%';node.style.top=step.y+'%';renderProcessLinksOnly()};
+    const stop=e=>{if(!down||e.pointerId!==pid)return;down=false;try{shape.releasePointerCapture?.(pid)}catch{}};
+    shape.onpointerup=stop;shape.onpointercancel=stop;
+    const label=document.createElement('input');label.value=step.label;label.setAttribute('aria-label','Descripción del paso '+step.id);label.onchange=()=>{step.label=label.value.trim()||STEP_TYPES[step.type].label};
+    const actions=document.createElement('div');actions.className='step-actions';
+    const connect=document.createElement('button');connect.textContent=state.diagramConnectFrom===step.id?'Cancelar conexión':'Conectar';connect.onclick=()=>{state.diagramConnectFrom=state.diagramConnectFrom===step.id?null:step.id;renderProcessDiagram();if(state.diagramConnectFrom!==null)toast('Ahora selecciona el símbolo de destino')};
+    const del=document.createElement('button');del.textContent='Eliminar';del.onclick=()=>{state.processDiagram=state.processDiagram.filter(n=>n.id!==step.id);state.processDiagramLinks=(state.processDiagramLinks||[]).filter(l=>l.from!==step.id&&l.to!==step.id);if(state.diagramConnectFrom===step.id)state.diagramConnectFrom=null;renderProcessDiagram()};
+    actions.append(connect,del);node.append(shape,label,actions);nodes.appendChild(node);
+  });
+}
+function renderProcessLinksOnly(){
+ const canvas=$('processDiagramCanvas'),svg=$('processDiagramSvg');if(!canvas||!svg)return;
+ const rect=canvas.getBoundingClientRect(),w=Math.max(rect.width,720),h=Math.max(rect.height,520);
+ const lines=[...svg.querySelectorAll('line')],list=state.processDiagram||[];
+ (state.processDiagramLinks||[]).forEach((ln,i)=>{const a=list.find(n=>n.id===ln.from),b=list.find(n=>n.id===ln.to),line=lines[i];if(a&&b&&line){line.setAttribute('x1',a.x/100*w);line.setAttribute('y1',a.y/100*h);line.setAttribute('x2',b.x/100*w);line.setAttribute('y2',b.y/100*h)}});
+}
 function renderMatrix(){const t=$('matrix');if(!state.processes.length){t.innerHTML='<tr><td class="empty">Añade procesos primero.</td></tr>';return}let h='<tr><th></th>'+state.processes.map(p=>'<th>'+p.id+'</th>').join('')+'</tr>';state.processes.forEach(a=>{h+='<tr><th>'+a.id+'</th>';state.processes.forEach(b=>{if(a.id===b.id)h+='<td class="diag">—</td>';else{const v=rel(a.id,b.id);h+='<td><select class="rel-select '+v.toLowerCase()+'" data-a="'+a.id+'" data-b="'+b.id+'"><option value="A" '+(v==='A'?'selected':'')+'>A</option><option value="E" '+(v==='E'?'selected':'')+'>E</option><option value="I" '+(v==='I'?'selected':'')+'>I</option><option value="O" '+(v==='O'?'selected':'')+'>O</option><option value="U" '+(v==='U'?'selected':'')+'>U</option><option value="X" '+(v==='X'?'selected':'')+'>X</option></select></td>'}});h+='</tr>'});t.innerHTML=h;t.querySelectorAll('.rel-select').forEach(sel=>sel.onchange=()=>setRel(+sel.dataset.a,+sel.dataset.b,sel.value))}
 function ensurePositions(){const n=state.processes.length;state.processes.forEach((p,i)=>{if(!state.graphPos[p.id]){const a=2*Math.PI*i/Math.max(n,1),r=Math.min(260,120+n*8);state.graphPos[p.id]={x:50+Math.cos(a)*r/10,y:50+Math.sin(a)*r/10}}if(!state.layoutPos[p.id])state.layoutPos[p.id]={x:5+(i%4)*23,y:5+Math.floor(i/4)*25,w:p.w,l:p.l}})}
 function drawGraphEdges(){const c=$('graphCanvas'),svg=$('graphSvg'),rect=c.getBoundingClientRect();svg.innerHTML='';state.processes.forEach(p=>state.processes.forEach(q=>{if(p.id<q.id){const code=rel(p.id,q.id);if(code==='U')return;const a=state.graphPos[p.id],b=state.graphPos[q.id],x1=(a.x/100)*rect.width,y1=(a.y/100)*rect.height,x2=(b.x/100)*rect.width,y2=(b.y/100)*rect.height,dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len,ox=-uy,oy=ux,radius=27;if(code==='X'){const sx=x1+ux*radius,sy=y1+uy*radius,ex=x2-ux*radius,ey=y2-uy*radius,dxz=ex-sx,dyz=ey-sy,points=[];for(let k=0;k<=8;k++){const t=k/8,side=k===0||k===8?0:(k%2===0?-1:1)*9;points.push((sx+dxz*t+ox*side)+','+(sy+dyz*t+oy*side))}const line=document.createElementNS('http://www.w3.org/2000/svg','polyline');line.setAttribute('points',points.join(' '));line.setAttribute('class','edge x');svg.appendChild(line)}else{const count=code==='A'?4:code==='E'?3:code==='I'?2:1,spacing=5;for(let i=0;i<count;i++){const off=(i-(count-1)/2)*spacing,reach=Math.sqrt(Math.max(0,radius*radius-off*off)),line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',x1+ux*reach+ox*off);line.setAttribute('y1',y1+uy*reach+oy*off);line.setAttribute('x2',x2-ux*reach+ox*off);line.setAttribute('y2',y2-uy*reach+oy*off);line.setAttribute('class','edge '+code.toLowerCase());svg.appendChild(line)}}}}))}
@@ -129,7 +182,7 @@ function renderAll(){state.name=$('projectName').value||state.name;renderProcess
 function save(){const data=JSON.stringify({...state,selected:null},null,2);localStorage.setItem('plantLayoutProject',data);toast('Proyecto guardado en este navegador')}
 function loadData(data){Object.assign(state,{...data,relationCauses:data.relationCauses||{}});Object.keys(state.relations||{}).forEach(k=>state.relations[k]=normalizeRel(state.relations[k]));$('projectName').value=state.name||'Mi planta industrial';renderAll();toast('Proyecto cargado')}
 $('projectName').onchange=()=>state.name=$('projectName').value;
-$('addProcess').onclick=()=>addProcess();$('newBtn').onclick=()=>{if(confirm('¿Crear un proyecto nuevo?')){state.name='Mi planta industrial';state.processes=[];state.relations={};state.relationCauses={};state.graphPos={};state.layoutPos={};state.selected=null;$('projectName').value=state.name;renderAll()}};
+$('addProcess').onclick=()=>addProcess();document.querySelectorAll('[data-add-step]').forEach(b=>b.onclick=()=>addDiagramStep(b.dataset.addStep));$('clearProcessDiagram').onclick=()=>{if(confirm('¿Vaciar el diagrama de proceso?')){state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;renderProcessDiagram()}};$('newBtn').onclick=()=>{if(confirm('¿Crear un proyecto nuevo?')){state.name='Mi planta industrial';state.processes=[];state.relations={};state.relationCauses={};state.graphPos={};state.layoutPos={};state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;state.selected=null;$('projectName').value=state.name;renderAll()}};
 $('saveBtn').onclick=save;$('loadBtn').onclick=()=>$('fileInput').click();$('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{loadData(JSON.parse(r.result))}catch{toast('Archivo JSON no válido')}};r.readAsText(f)};
 $('exportBtn').onclick=()=>{const blob=new Blob([JSON.stringify({...state,selected:null},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(state.name||'planta').replace(/\s+/g,'_')+'.json';a.click();URL.revokeObjectURL(a.href)};
 $('demoBtn').onclick=()=>{const names=['Recepción','Almacén MP','Corte','Mecanizado','Soldadura','Montaje','Control calidad','Almacén PT','Expedición'];state.processes=[];state.relations={};state.relationCauses={};state.graphPos={};state.layoutPos={};names.forEach((n,i)=>addProcess({name:n,w:[8,10,7,12,9,11,6,10,7][i],l:[6,7,5,8,6,7,5,6,5][i]}));[[1,2,'A',1],[2,3,'A',1],[2,4,'I',5],[3,4,'A',1],[4,5,'A',3],[5,6,'A',2],[6,7,'I',8],[7,8,'I',5],[8,9,'A',3],[6,9,'I',2],[1,8,'O',8]].forEach(x=>{state.relations[key(x[0],x[1])]=x[2];state.relationCauses[key(x[0],x[1])]=x[3]});fitLayout();toast('Ejemplo cargado')};
