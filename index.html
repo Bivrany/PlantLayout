@@ -167,7 +167,59 @@ function initLayoutViewport(){const f=$('floor');if(!layoutView.initialized){lay
 function dragLayout(el,id){let down=false,sx,sy,ox,oy;const move=e=>{if(!down)return;const f=$('floor').getBoundingClientRect();const pos=state.layoutPos[id];pos.x=Math.max(0,Math.min(96,ox+(e.clientX-sx)/(2200*layoutView.zoom)*100));pos.y=Math.max(0,Math.min(94,oy+(e.clientY-sy)/(1400*layoutView.zoom)*100));el.style.left=pos.x+'%';el.style.top=pos.y+'%';renderSelected()};const up=()=>{down=false;window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up)};el.onpointerdown=e=>{if(e.target.classList.contains('handle'))return;down=true;sx=e.clientX;sy=e.clientY;ox=state.layoutPos[id].x;oy=state.layoutPos[id].y;state.selected=id;el.classList.add('selected');e.preventDefault();e.stopPropagation();window.addEventListener('pointermove',move);window.addEventListener('pointerup',up)};el.querySelector('.handle').onpointerdown=e=>{e.stopPropagation();const f=$('floor').getBoundingClientRect(),p=state.processes.find(x=>x.id===id);const start={x:e.clientX,y:e.clientY,w:p.w,l:p.l};const moveSize=ev=>{p.w=Math.max(.5,start.w+(ev.clientX-start.x)/(layoutView.zoom*20));p.l=Math.max(.5,start.l+(ev.clientY-start.y)/(layoutView.zoom*20));const ww=Math.max(30,p.w*20),hh=Math.max(25,p.l*20);el.style.width=ww+'px';el.style.height=hh+'px';renderSelected()};const upSize=()=>{window.removeEventListener('pointermove',moveSize);window.removeEventListener('pointerup',upSize);renderLayout()};window.addEventListener('pointermove',moveSize);window.addEventListener('pointerup',upSize)}}
 function renderSelected(){const p=state.processes.find(x=>x.id===state.selected);const box=$('selectedPanel');if(!p){box.innerHTML='<div class="empty" style="padding:20px 5px">Selecciona un bloque para editarlo.</div>';return}box.innerHTML=`<div class="field"><label>Proceso</label><input value="${esc(p.name)}" id="selName"></div><div class="field"><label>Ancho (m)</label><input type="number" min="0.1" step="0.1" value="${p.w}" id="selW"></div><div class="field"><label>Largo (m)</label><input type="number" min="0.1" step="0.1" value="${p.l}" id="selL"></div><div class="smalltext">Centro: ${state.layoutPos[p.id].x.toFixed(1)}%, ${state.layoutPos[p.id].y.toFixed(1)}%</div><button class="btn small danger" style="margin-top:12px" id="selDel">Eliminar proceso</button>`;$('selName').onchange=e=>{p.name=e.target.value;renderAll()};$('selW').onchange=e=>{p.w=+e.target.value;renderAll()};$('selL').onchange=e=>{p.l=+e.target.value;renderAll()};$('selDel').onclick=()=>deleteProcess(p.id)}
 function score(){let total=0,weight=0;const f=$('floor').getBoundingClientRect();state.processes.forEach(a=>state.processes.forEach(b=>{if(a.id>=b.id)return;const r=rel(a.id,b.id),w=REL_WEIGHT[r];if(!w)return;const A=state.layoutPos[a.id],B=state.layoutPos[b.id];const d=Math.hypot(A.x-B.x,A.y-B.y);total+=d*w;weight+=w}));const val=weight?total/weight:0;$('scoreBox').innerHTML=`<div class="smalltext">Distancia ponderada media</div><strong>${val.toFixed(2)}</strong><div class="smalltext">Menor valor = menor distancia media ponderada. Es una métrica auxiliar, no sustituye las decisiones de diseño.</div>`;return val}
-function autoGraph(){state.processes.forEach((p,i)=>{const angle=2*Math.PI*i/state.processes.length;state.graphPos[p.id]={x:50+40*Math.cos(angle),y:50+40*Math.sin(angle)}});renderGraph()}
+function autoGraph(){
+  const nodes=state.processes;
+  const n=nodes.length;
+  if(!n)return;
+  if(n===1){state.graphPos[nodes[0].id]={x:50,y:50};renderGraph();return}
+  // Distribución por fuerzas: cada pareja tiene una distancia objetivo
+  // según su relación; A/E/I/O atraen y X separa con especial intensidad.
+  const W=1000,H=600,margin=48;
+  const cfg={
+    A:{distance:105,strength:.19},
+    E:{distance:145,strength:.15},
+    I:{distance:190,strength:.105},
+    O:{distance:235,strength:.055},
+    U:{distance:260,strength:.018},
+    X:{distance:365,strength:.22}
+  };
+  const pos=nodes.map((p,i)=>{
+    const angle=2*Math.PI*i/n-Math.PI/2;
+    const radius=Math.min(230,95+n*12);
+    return {id:p.id,x:W/2+Math.cos(angle)*radius,y:H/2+Math.sin(angle)*radius,fx:0,fy:0};
+  });
+  // Iteraciones con enfriamiento gradual para estabilizar la distribución.
+  for(let iter=0;iter<650;iter++){
+    const cooling=1-iter/650;
+    pos.forEach(p=>{p.fx=0;p.fy=0});
+    for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){
+      const a=pos[i],b=pos[j];
+      let dx=b.x-a.x,dy=b.y-a.y;
+      let d=Math.hypot(dx,dy);
+      if(d<.001){dx=(i+1)*.37;dy=(j+1)*.61;d=Math.hypot(dx,dy)}
+      const ux=dx/d,uy=dy/d;
+      const c=cfg[rel(a.id,b.id)]||cfg.U;
+      // La fuerza tiende a llevar la pareja a su distancia ideal.
+      let force=(d-c.distance)*c.strength;
+      // Evita que dos círculos se amontonen, incluso si no hay relación.
+      if(d<76)force-=((76-d)*.24);
+      a.fx+=ux*force;a.fy+=uy*force;
+      b.fx-=ux*force;b.fy-=uy*force;
+    }
+    // Ligera atracción al centro para que el conjunto no se disperse.
+    pos.forEach(p=>{
+      p.fx+=(W/2-p.x)*.0025;
+      p.fy+=(H/2-p.y)*.0025;
+      const step=Math.min(7,Math.hypot(p.fx,p.fy))*cooling;
+      const mag=Math.hypot(p.fx,p.fy)||1;
+      p.x=Math.max(margin,Math.min(W-margin,p.x+p.fx/mag*step));
+      p.y=Math.max(margin,Math.min(H-margin,p.y+p.fy/mag*step));
+    });
+  }
+  pos.forEach(p=>{state.graphPos[p.id]={x:p.x/W*100,y:p.y/H*100}});
+  renderGraph();
+  toast('Diagrama ordenado según las relaciones');
+}
 function fitLayout(){const n=state.processes.length;if(!n)return;const cols=Math.ceil(Math.sqrt(n)),rows=Math.ceil(n/cols);const cellW=92/cols,cellH=88/rows;state.processes.forEach((p,i)=>{const col=i%cols,row=Math.floor(i/cols);state.layoutPos[p.id]={x:4+col*cellW,y:5+row*cellH,w:p.w,l:p.l}});renderLayout()}
 function fromDiagram(){ensurePositions();state.processes.forEach(p=>{const g=state.graphPos[p.id];state.layoutPos[p.id]={x:Math.max(2,Math.min(92,g.x-4)),y:Math.max(2,Math.min(88,g.y-6)),w:p.w,l:p.l}});renderLayout();toast('Layout colocado según el Diagrama')}
 function resetLayout(){state.processes.forEach((p,i)=>{state.layoutPos[p.id]={x:5+(i%4)*23,y:5+Math.floor(i/4)*25,w:p.w,l:p.l}});renderLayout()}
