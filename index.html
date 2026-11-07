@@ -25,7 +25,7 @@ main{padding:22px;min-width:0}.view{display:none}.view.active{display:block}.pag
 </style>
 </head>
 <body>
-<header><div class="brand"><div class="logo">PL</div><div><h1>PlantLayout</h1><span>Diseño de plantas industriales · Q1</span></div></div><div class="toolbar"><button class="btn" id="newBtn">Nuevo</button><button class="btn" id="saveBtn">Guardar</button><button class="btn" id="loadBtn">Abrir</button><button class="btn primary" id="exportBtn">Exportar JSON</button><input id="fileInput" class="file-input" type="file" accept="application/json"/></div></header>
+<header><div class="brand"><div class="logo">PL</div><div><h1>PlantLayout</h1><span>Diseño de plantas industriales · Q1</span></div></div><div class="toolbar"><span id="cloudStatus" style="font-size:12px;color:#64748b;margin-right:5px">Conectando…</span><button class="btn" id="newBtn">Nuevo</button><button class="btn" id="saveBtn">Guardar</button><button class="btn" id="loadBtn">Abrir</button><button class="btn primary" id="exportBtn">Exportar JSON</button><input id="fileInput" class="file-input" type="file" accept="application/json"/></div></header>
 <div class="app">
 <aside><div class="side-title">Proyecto</div><div class="projectbox"><label>Nombre</label><input id="projectName" value="Mi planta industrial"/></div><div class="side-title">Proceso</div><div class="nav"><button class="active" data-view="processes">1 · Procesos</button><button data-view="processDiagram">2 · Diagrama de proceso</button><button data-view="relations">3 · Tabla de relaciones</button><button data-view="graph">4 · Diagrama de relaciones</button><button data-view="layout">5 · Layout</button></div><div class="side-title">Herramientas</div><div class="nav"><button id="demoBtn">Cargar ejemplo</button><button id="clearBtn">Vaciar proyecto</button></div></aside>
 <main>
@@ -35,11 +35,66 @@ main{padding:22px;min-width:0}.view{display:none}.view.active{display:block}.pag
 <section id="graph" class="view"><div class="pagehead"><div><h2>Diagrama de relaciones</h2><p>Arrastra los círculos para organizar visualmente el diagrama. Las líneas reflejan la matriz.</p></div><div><button class="btn" id="autoGraph">Ordenar automáticamente</button></div></div><div class="card graph-card"><div class="graph-canvas" id="graphCanvas"><svg id="graphSvg"></svg><div class="graph-tools"><div class="hint">Arrastra los nodos · móvil: mantén pulsado y mueve</div></div></div></div></section>
 <section id="layout" class="view"><div class="pagehead"><div><h2>Layout de planta</h2><p>Coloca y dimensiona los bloques y añade figuras auxiliares para representar paredes, zonas o recorridos.</p></div><div><button class="btn" id="fitLayout">Encajar automáticamente</button><button class="btn" id="fromDiagram">↗ Colocar como diagrama</button><button class="btn" id="expandLayout">⛶ Maximizar espacio</button><button class="btn primary" id="layoutScore">Calcular relaciones</button></div></div><div class="layout-draw-tools"><span>Herramientas de dibujo:</span><button class="btn small" id="layoutSelectMode" type="button">↖ Seleccionar</button><button class="btn small" id="drawRectMode" type="button">□ Dibujar rectángulo</button><button class="btn small" id="drawLineMode" type="button">／ Dibujar línea</button><button class="btn small danger" id="clearLayoutDrawings" type="button">Borrar figuras</button><span class="draw-hint" id="drawHint">Selecciona una herramienta para empezar.</span></div><div class="layout-shell"><div class="card floor-card"><div class="floor" id="floor"><div class="floor-world" id="floorWorld"></div><div class="layout-controls"><button class="btn small" id="zoomOut" title="Alejar">−</button><div class="zoom-readout" id="zoomReadout">50%</div><button class="btn small" id="zoomIn" title="Acercar">+</button><button class="btn small" id="zoomFit" title="Ajustar a la vista">Ajustar</button></div><div class="layout-hint">Rueda = zoom · arrastra el fondo = desplazar · rueda con Ctrl también hace zoom</div></div></div><div class="card sidebar-controls"><h3>Elemento seleccionado</h3><div id="selectedPanel"><div class="empty" style="padding:20px 5px">Selecciona un bloque para editarlo.</div></div><hr style="border:0;border-top:1px solid var(--line);margin:16px 0"><div class="score" id="scoreBox"><div class="smalltext">Distancia ponderada</div><strong>—</strong><div class="smalltext">La puntuación usa la distancia entre centros y el peso de cada relación.</div></div><div style="margin-top:12px"><button class="btn small" id="resetLayout">Restablecer posiciones</button></div></div></div></section>
 </main></div><div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const state={name:'Mi planta industrial', processes:[], relations:{}, relationCauses:{}, graphPos:{}, layoutPos:{}, processDiagram:[], processDiagramLinks:[], diagramConnectFrom:null, layoutDrawings:[], selected:null};
 const layoutView={zoom:.5,panX:0,panY:0,initialized:false};
 const $=id=>document.getElementById(id);
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window._toast);window._toast=setTimeout(()=>t.classList.remove('show'),1800)}
+// Supabase: un único registro compartido por todo el equipo.
+const SUPABASE_URL='https://bhhrpessxsipqscgkkbn.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_wk238KTw9kmA2-ghwpfAYA_Jvgns6hw';
+const CLOUD_PROJECT_ID='golf-ball-plant';
+const cloudClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+let cloudReady=false,cloudDirty=false,applyingRemote=false,cloudTimer=null;
+function setCloudStatus(message,color='#64748b'){$('cloudStatus').textContent=message;$('cloudStatus').style.color=color}
+function currentProjectData(){return {...state,selected:null}}
+function storeLocal(){try{localStorage.setItem('plantLayoutProject',JSON.stringify(currentProjectData()))}catch(e){console.warn('No se pudo guardar localmente',e)}}
+function markLocalEdit(){
+  if(!cloudReady||applyingRemote)return;
+  cloudDirty=true;storeLocal();setCloudStatus('Cambios pendientes…','#b45309');
+  clearTimeout(cloudTimer);cloudTimer=setTimeout(saveCloud,900);
+}
+async function saveCloud(){
+  if(!cloudReady||applyingRemote)return;
+  clearTimeout(cloudTimer);
+  const snapshot=currentProjectData();
+  setCloudStatus('Guardando…','#b45309');
+  try{
+    const {error}=await cloudClient.from('plant_projects').upsert({id:CLOUD_PROJECT_ID,data:snapshot,updated_at:new Date().toISOString()},{onConflict:'id'});
+    if(error)throw error;
+    cloudDirty=false;storeLocal();setCloudStatus('Guardado en la nube','#047857');
+  }catch(error){console.error('Error guardando en Supabase:',error);setCloudStatus('Error al guardar en la nube','#dc2626');toast('No se pudo guardar en la nube. Se conserva la copia local.')}
+}
+function applyCloudProject(data){
+  applyingRemote=true;
+  try{loadData(data);storeLocal()}finally{applyingRemote=false}
+}
+async function initCloud(){
+  try{
+    setCloudStatus('Conectando…');
+    const {data,error}=await cloudClient.from('plant_projects').select('data').eq('id',CLOUD_PROJECT_ID).maybeSingle();
+    if(error)throw error;
+    const local=localStorage.getItem('plantLayoutProject');
+    if(data&&data.data){applyCloudProject(data.data);setCloudStatus('Proyecto compartido cargado','#047857')}
+    else{
+      if(local){try{loadData(JSON.parse(local))}catch{renderAll()}}
+      cloudReady=true;
+      await saveCloud();
+      setCloudStatus('Proyecto compartido creado','#047857');
+    }
+    cloudReady=true;
+    cloudClient.channel('plant-project-live')
+      .on('postgres_changes',{event:'*',schema:'public',table:'plant_projects',filter:'id=eq.'+CLOUD_PROJECT_ID},payload=>{
+        if(payload.new&&payload.new.data&&!cloudDirty){applyCloudProject(payload.new.data);setCloudStatus('Actualizado desde otro equipo','#047857')}
+      })
+      .subscribe(status=>{if(status==='SUBSCRIBED')setCloudStatus(cloudDirty?'Cambios pendientes…':'Sincronización activa','#047857');else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')setCloudStatus('Sin conexión en tiempo real','#b45309')});
+  }catch(error){console.error('Error conectando con Supabase:',error);setCloudStatus('Nube no disponible · modo local','#dc2626');toast('No se pudo conectar con la nube. Comprueba la configuración de Supabase.')}
+}
+document.addEventListener('input',markLocalEdit,true);
+document.addEventListener('change',markLocalEdit,true);
+document.addEventListener('click',markLocalEdit,true);
+document.addEventListener('pointerup',markLocalEdit,true);
 const REL_CODES=['A','E','I','O','U','X'];
 const REL_WEIGHT={A:4,E:3,I:2,O:1,U:0,X:0};
 function normalizeRel(v){if(v===undefined||v===null||v==='')return 'U';if(typeof v==='number')return ({0:'U',1:'O',2:'I',3:'A'})[v]||'U';v=String(v).toUpperCase();return REL_CODES.includes(v)?v:'U'}
@@ -117,7 +172,7 @@ function fromDiagram(){ensurePositions();state.processes.forEach(p=>{const g=sta
 function resetLayout(){state.processes.forEach((p,i)=>{state.layoutPos[p.id]={x:5+(i%4)*23,y:5+Math.floor(i/4)*25,w:p.w,l:p.l}});renderLayout()}
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function renderAll(){state.name=$('projectName').value||state.name;renderProcesses();renderMatrix();renderProcessDiagram();ensurePositions();if($('graph').classList.contains('active'))renderGraph();if($('layout').classList.contains('active'))renderLayout()}
-function save(){const data=JSON.stringify({...state,selected:null},null,2);localStorage.setItem('plantLayoutProject',data);toast('Proyecto guardado en este navegador')}
+function save(){storeLocal();saveCloud();toast('Guardando proyecto compartido…')}
 function loadData(data){Object.assign(state,{...data,relationCauses:data.relationCauses||{}});Object.keys(state.relations||{}).forEach(k=>state.relations[k]=normalizeRel(state.relations[k]));$('projectName').value=state.name||'Mi planta industrial';renderAll();toast('Proyecto cargado')}
 $('projectName').onchange=()=>state.name=$('projectName').value;
 $('addProcess').onclick=()=>addProcess();document.querySelectorAll('[data-add-step]').forEach(b=>b.onclick=()=>addDiagramStep(b.dataset.addStep));$('clearProcessDiagram').onclick=()=>{if(confirm('¿Vaciar el diagrama de proceso?')){state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;renderProcessDiagram()}};document.querySelectorAll('[data-add-step]').forEach(b=>b.onclick=()=>addDiagramStep(b.dataset.addStep));$('clearProcessDiagram').onclick=()=>{if(confirm('¿Vaciar el diagrama de proceso?')){state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;renderProcessDiagram()}};$('newBtn').onclick=()=>{if(confirm('¿Crear un proyecto nuevo?')){state.name='Mi planta industrial';state.processes=[];state.relations={};state.relationCauses={};state.graphPos={};state.layoutPos={};state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;state.layoutDrawings=[];state.selected=null;$('projectName').value=state.name;renderAll()}};
@@ -128,7 +183,8 @@ $('clearBtn').onclick=()=>{if(confirm('¿Vaciar todos los procesos y relaciones?
 $('autoGraph').onclick=autoGraph;$('layoutSelectMode').onclick=()=>setLayoutDrawMode('select');$('drawRectMode').onclick=()=>setLayoutDrawMode('rect');$('drawLineMode').onclick=()=>setLayoutDrawMode('line');$('clearLayoutDrawings').onclick=()=>{if(confirm('¿Borrar todas las figuras dibujadas?')){state.layoutDrawings=[];renderLayout()}};$('fitLayout').onclick=fitLayout;$('fromDiagram').onclick=fromDiagram;$('resetLayout').onclick=resetLayout;$('expandLayout').onclick=()=>{const shell=document.querySelector('.layout-shell');shell.classList.toggle('expanded');$('expandLayout').textContent=shell.classList.contains('expanded')?'↙ Restaurar panel':'⛶ Maximizar espacio';setTimeout(renderLayout,30)};$('layoutScore').onclick=()=>toast('Distancia ponderada: '+score().toFixed(2));
 document.querySelectorAll('.nav button[data-view]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$(b.dataset.view).classList.add('active');if(b.dataset.view==='processDiagram')setTimeout(renderProcessDiagram,30);if(b.dataset.view==='graph')setTimeout(renderGraph,30);if(b.dataset.view==='layout')setTimeout(renderLayout,30)});
 window.addEventListener('resize',()=>{if($('graph').classList.contains('active'))renderGraph();if($('layout').classList.contains('active'))renderLayout()});
-// Initial example-free state with a few processes only if no saved project.
+// Mostrar el último estado local y sincronizar después con la nube.
 const saved=localStorage.getItem('plantLayoutProject');if(saved){try{loadData(JSON.parse(saved))}catch{renderAll()}}else{[1,2,3,4].forEach(i=>addProcess({name:`Proceso ${i}`,w:6,l:5}));renderAll()}
+initCloud();
 </script>
 </body></html>
