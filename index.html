@@ -52,8 +52,10 @@ function currentProjectData(){return {...state,selected:null}}
 function storeLocal(){try{localStorage.setItem('plantLayoutProject',JSON.stringify(currentProjectData()))}catch(e){console.warn('No se pudo guardar localmente',e)}}
 function markLocalEdit(){
   if(!cloudReady||applyingRemote)return;
-  cloudDirty=true;storeLocal();setCloudStatus('Cambios pendientes…','#b45309');
-  clearTimeout(cloudTimer);cloudTimer=setTimeout(saveCloud,900);
+  cloudDirty=true;
+  setCloudStatus('Cambios sin guardar en la nube','#b45309');
+  // Guardar localmente después de que termine el evento que modifica el estado.
+  queueMicrotask(storeLocal);
 }
 async function saveCloud(){
   if(!cloudReady||applyingRemote)return;
@@ -80,8 +82,7 @@ async function initCloud(){
     else{
       if(local){try{loadData(JSON.parse(local))}catch{renderAll()}}
       cloudReady=true;
-      await saveCloud();
-      setCloudStatus('Proyecto compartido creado','#047857');
+      setCloudStatus('Proyecto aún no guardado en la nube','#b45309');
     }
     cloudReady=true;
     cloudClient.channel('plant-project-live')
@@ -172,7 +173,12 @@ function fromDiagram(){ensurePositions();state.processes.forEach(p=>{const g=sta
 function resetLayout(){state.processes.forEach((p,i)=>{state.layoutPos[p.id]={x:5+(i%4)*23,y:5+Math.floor(i/4)*25,w:p.w,l:p.l}});renderLayout()}
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function renderAll(){state.name=$('projectName').value||state.name;renderProcesses();renderMatrix();renderProcessDiagram();ensurePositions();if($('graph').classList.contains('active'))renderGraph();if($('layout').classList.contains('active'))renderLayout()}
-function save(){storeLocal();saveCloud();toast('Guardando proyecto compartido…')}
+async function save(){
+  storeLocal();
+  if(!cloudReady){toast('La nube aún no está conectada. Se ha guardado una copia local.');return}
+  toast('Guardando proyecto compartido…');
+  await saveCloud();
+}
 function loadData(data){Object.assign(state,{...data,relationCauses:data.relationCauses||{}});Object.keys(state.relations||{}).forEach(k=>state.relations[k]=normalizeRel(state.relations[k]));$('projectName').value=state.name||'Mi planta industrial';renderAll();toast('Proyecto cargado')}
 $('projectName').onchange=()=>state.name=$('projectName').value;
 $('addProcess').onclick=()=>addProcess();document.querySelectorAll('[data-add-step]').forEach(b=>b.onclick=()=>addDiagramStep(b.dataset.addStep));$('clearProcessDiagram').onclick=()=>{if(confirm('¿Vaciar el diagrama de proceso?')){state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;renderProcessDiagram()}};document.querySelectorAll('[data-add-step]').forEach(b=>b.onclick=()=>addDiagramStep(b.dataset.addStep));$('clearProcessDiagram').onclick=()=>{if(confirm('¿Vaciar el diagrama de proceso?')){state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;renderProcessDiagram()}};$('newBtn').onclick=()=>{if(confirm('¿Crear un proyecto nuevo?')){state.name='Mi planta industrial';state.processes=[];state.relations={};state.relationCauses={};state.graphPos={};state.layoutPos={};state.processDiagram=[];state.processDiagramLinks=[];state.diagramConnectFrom=null;state.layoutDrawings=[];state.selected=null;$('projectName').value=state.name;renderAll()}};
