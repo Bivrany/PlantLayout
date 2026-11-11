@@ -220,7 +220,57 @@ function autoGraph(){
   renderGraph();
   toast('Diagrama ordenado según las relaciones');
 }
-function fitLayout(){const n=state.processes.length;if(!n)return;const cols=Math.ceil(Math.sqrt(n)),rows=Math.ceil(n/cols);const cellW=92/cols,cellH=88/rows;state.processes.forEach((p,i)=>{const col=i%cols,row=Math.floor(i/cols);state.layoutPos[p.id]={x:4+col*cellW,y:5+row*cellH,w:p.w,l:p.l}});renderLayout()}
+function fitLayout(){
+  const nodes=state.processes;
+  if(!nodes.length)return;
+  ensurePositions();
+  const worldW=2200,worldH=1400,gap=18,step=20,margin=35;
+  // Cada centro del diagrama de relaciones se convierte en una posición
+  // objetivo dentro del plano, manteniendo la misma disposición relativa.
+  const items=nodes.map(p=>{
+    const w=Math.max(30,p.w*20),h=Math.max(25,p.l*20);
+    const g=state.graphPos[p.id]||{x:50,y:50};
+    const cx=margin+(g.x/100)*(worldW-2*margin);
+    const cy=margin+(g.y/100)*(worldH-2*margin);
+    return {p,w,h,targetX:Math.max(margin,Math.min(worldW-margin-w,cx-w/2)),targetY:Math.max(margin,Math.min(worldH-margin-h,cy-h/2))};
+  });
+  // Colocamos primero los bloques de mayor superficie para reservarles espacio.
+  items.sort((a,b)=>(b.w*b.h)-(a.w*a.h));
+  const placed=[];
+  const overlaps=(x,y,item,other)=>{
+    return x < other.x+other.w+gap &&
+      x+item.w+gap > other.x &&
+      y < other.y+other.h+gap &&
+      y+item.h+gap > other.y;
+  };
+  items.forEach(item=>{
+    const maxX=worldW-margin-item.w,maxY=worldH-margin-item.h;
+    const xs=[item.targetX],ys=[item.targetY];
+    for(let x=margin;x<=maxX;x+=step)xs.push(x);
+    for(let y=margin;y<=maxY;y+=step)ys.push(y);
+    let best=null,bestScore=Infinity;
+    for(const y of ys)for(const x of xs){
+      if(placed.some(other=>overlaps(x,y,item,other)))continue;
+      const dx=x-item.targetX,dy=y-item.targetY;
+      const score=dx*dx+dy*dy;
+      if(score<bestScore){bestScore=score;best={x,y,w:item.w,h:item.h}}
+    }
+    // Si la cuadrícula no encuentra hueco, se repite con una malla más fina.
+    if(!best){
+      for(let y=margin;y<=maxY&&!best;y+=10)for(let x=margin;x<=maxX;x+=10){
+        if(!placed.some(other=>overlaps(x,y,item,other))){best={x,y,w:item.w,h:item.h};break}
+      }
+    }
+    if(!best){
+      // Solo ocurriría si el conjunto de bloques no cabe físicamente en el plano.
+      best={x:margin,y:margin,w:item.w,h:item.h};
+    }
+    placed.push(best);
+    state.layoutPos[item.p.id]={x:best.x/worldW*100,y:best.y/worldH*100,w:item.p.w,l:item.p.l};
+  });
+  renderLayout();
+  toast('Layout ajustado al diagrama sin solapar los bloques');
+}
 function fromDiagram(){ensurePositions();state.processes.forEach(p=>{const g=state.graphPos[p.id];state.layoutPos[p.id]={x:Math.max(2,Math.min(92,g.x-4)),y:Math.max(2,Math.min(88,g.y-6)),w:p.w,l:p.l}});renderLayout();toast('Layout colocado según el Diagrama')}
 function resetLayout(){state.processes.forEach((p,i)=>{state.layoutPos[p.id]={x:5+(i%4)*23,y:5+Math.floor(i/4)*25,w:p.w,l:p.l}});renderLayout()}
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
